@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: fastvlm-backend
+    env: python
+    buildCommand: "cd backend && pip install -r requirements.txt"
+    startCommand: "cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.9"
+    # Note: Free tier has 512MB RAM - insufficient for FastVLM-7B
+    # Upgrade to at least 16GB RAM instance for production
