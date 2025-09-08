@@ -34,55 +34,79 @@ COPY backend/ ./backend/
 # Copy frontend build from builder stage
 COPY --from=frontend-builder /app/frontend/dist /usr/share/nginx/html
 
-# Configure nginx to serve frontend and proxy to backend
-RUN echo 'server { \n\
-    listen 7860; \n\
-    root /usr/share/nginx/html; \n\
-    index index.html; \n\
-    \n\
-    location / { \n\
-        try_files $uri $uri/ /index.html; \n\
-    } \n\
-    \n\
-    location /api/ { \n\
-        proxy_pass http://127.0.0.1:8000/; \n\
-        proxy_http_version 1.1; \n\
-        proxy_set_header Upgrade $http_upgrade; \n\
-        proxy_set_header Connection "upgrade"; \n\
-        proxy_set_header Host $host; \n\
-        proxy_set_header X-Real-IP $remote_addr; \n\
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; \n\
-        proxy_set_header X-Forwarded-Proto $scheme; \n\
-        proxy_buffering off; \n\
-    } \n\
-}' > /etc/nginx/sites-available/default
+# Create nginx configuration
+RUN rm -f /etc/nginx/sites-enabled/default && \
+    echo 'server { \
+    listen 7860; \
+    server_name localhost; \
+    root /usr/share/nginx/html; \
+    index index.html; \
+    \
+    location / { \
+        try_files $uri $uri/ /index.html; \
+    } \
+    \
+    location /api/ { \
+        proxy_pass http://127.0.0.1:8000/; \
+        proxy_http_version 1.1; \
+        proxy_set_header Upgrade $http_upgrade; \
+        proxy_set_header Connection "upgrade"; \
+        proxy_set_header Host $host; \
+        proxy_set_header X-Real-IP $remote_addr; \
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; \
+        proxy_set_header X-Forwarded-Proto $scheme; \
+        proxy_buffering off; \
+        proxy_read_timeout 86400; \
+    } \
+}' > /etc/nginx/sites-enabled/default
 
-# Create supervisor config
-RUN echo '[supervisord] \n\
-nodaemon=true \n\
-\n\
-[program:nginx] \n\
-command=nginx -g "daemon off;" \n\
-autostart=true \n\
-autorestart=true \n\
-stderr_logfile=/var/log/nginx.err.log \n\
-stdout_logfile=/var/log/nginx.out.log \n\
-\n\
-[program:backend] \n\
-command=python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 \n\
-directory=/app \n\
-autostart=true \n\
-autorestart=true \n\
-stderr_logfile=/var/log/backend.err.log \n\
-stdout_logfile=/var/log/backend.out.log \n\
-environment=USE_EXTREME_OPTIMIZATION="true",MAX_MEMORY_GB="3"' > /etc/supervisor/conf.d/supervisord.conf
+# Create supervisor configuration
+RUN mkdir -p /var/log/supervisor && \
+    echo '[supervisord] \
+nodaemon=true \
+logfile=/var/log/supervisor/supervisord.log \
+pidfile=/var/run/supervisord.pid \
+\
+[program:nginx] \
+command=/usr/sbin/nginx -g "daemon off;" \
+autostart=true \
+autorestart=true \
+priority=10 \
+stdout_events_enabled=true \
+stderr_events_enabled=true \
+stdout_logfile=/dev/stdout \
+stdout_logfile_maxbytes=0 \
+stderr_logfile=/dev/stderr \
+stderr_logfile_maxbytes=0 \
+\
+[program:backend] \
+command=python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --workers 1 \
+directory=/app \
+autostart=true \
+autorestart=true \
+priority=5 \
+stdout_events_enabled=true \
+stderr_events_enabled=true \
+stdout_logfile=/dev/stdout \
+stdout_logfile_maxbytes=0 \
+stderr_logfile=/dev/stderr \
+stderr_logfile_maxbytes=0 \
+environment=USE_EXTREME_OPTIMIZATION="true",MAX_MEMORY_GB="3",PYTHONUNBUFFERED="1"' > /etc/supervisor/conf.d/supervisord.conf
 
-# Expose Hugging Face Spaces default port
+# Create startup script
+RUN echo '#!/bin/bash \
+echo "Starting FastVLM Screen Observer..." \
+echo "Starting supervisor..." \
+exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf' > /app/start.sh && \
+    chmod +x /app/start.sh
+
+# Expose port
 EXPOSE 7860
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:7860/ || exit 1
+# Environment variables
+ENV USE_EXTREME_OPTIMIZATION=true
+ENV MAX_MEMORY_GB=3
+ENV PYTHONUNBUFFERED=1
 
-# Start supervisor
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+# Start the application
+CMD ["/app/start.sh"]
