@@ -1,61 +1,88 @@
-# Multi-stage build for optimized image size
-FROM python:3.9-slim as builder
+# Hugging Face Spaces Dockerfile - Frontend + Backend
+FROM node:18-slim as frontend-builder
 
-WORKDIR /app
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
-    git \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy and install Python dependencies
-COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Production stage
+# Python backend stage
 FROM python:3.9-slim
 
 WORKDIR /app
 
-# Install runtime dependencies
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
+    nginx \
+    supervisor \
     libgomp1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
     libxrender1 \
-    libgomp1 \
-    wget \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Python packages from builder
-COPY --from=builder /usr/local/lib/python3.9/site-packages /usr/local/lib/python3.9/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
+# Install Python dependencies
+COPY backend/requirements.txt ./backend/
+RUN pip install --no-cache-dir -r backend/requirements.txt
 
-# Copy application code
+# Copy backend code
 COPY backend/ ./backend/
 
-# Set environment variables for memory optimization
-ENV PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
-ENV OMP_NUM_THREADS=4
-ENV MKL_NUM_THREADS=4
-ENV NUMEXPR_NUM_THREADS=4
-ENV TOKENIZERS_PARALLELISM=false
+# Copy frontend build from builder stage
+COPY --from=frontend-builder /app/frontend/dist /usr/share/nginx/html
 
-# Enable extreme memory optimization
-ENV USE_EXTREME_OPTIMIZATION=true
-ENV MAX_MEMORY_GB=3
+# Configure nginx to serve frontend and proxy to backend
+RUN echo 'server { \n\
+    listen 7860; \n\
+    root /usr/share/nginx/html; \n\
+    index index.html; \n\
+    \n\
+    location / { \n\
+        try_files $uri $uri/ /index.html; \n\
+    } \n\
+    \n\
+    location /api/ { \n\
+        proxy_pass http://127.0.0.1:8000/; \n\
+        proxy_http_version 1.1; \n\
+        proxy_set_header Upgrade $http_upgrade; \n\
+        proxy_set_header Connection "upgrade"; \n\
+        proxy_set_header Host $host; \n\
+        proxy_set_header X-Real-IP $remote_addr; \n\
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; \n\
+        proxy_set_header X-Forwarded-Proto $scheme; \n\
+        proxy_buffering off; \n\
+    } \n\
+}' > /etc/nginx/sites-available/default
 
-WORKDIR /app/backend
+# Create supervisor config
+RUN echo '[supervisord] \n\
+nodaemon=true \n\
+\n\
+[program:nginx] \n\
+command=nginx -g "daemon off;" \n\
+autostart=true \n\
+autorestart=true \n\
+stderr_logfile=/var/log/nginx.err.log \n\
+stdout_logfile=/var/log/nginx.out.log \n\
+\n\
+[program:backend] \n\
+command=python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 \n\
+directory=/app \n\
+autostart=true \n\
+autorestart=true \n\
+stderr_logfile=/var/log/backend.err.log \n\
+stdout_logfile=/var/log/backend.out.log \n\
+environment=USE_EXTREME_OPTIMIZATION="true",MAX_MEMORY_GB="3"' > /etc/supervisor/conf.d/supervisord.conf
 
-# Expose port
-EXPOSE 8000
+# Expose Hugging Face Spaces default port
+EXPOSE 7860
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8000/ || exit 1
+    CMD curl -f http://localhost:7860/ || exit 1
 
-# Start the application with memory-limited configuration
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# Start supervisor
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
