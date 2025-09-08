@@ -3,7 +3,7 @@ import axios from 'axios'
 import ScreenCapture from './ScreenCapture'
 import './App.css'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API_BASE = import.meta.env.VITE_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:8000' : '/api')
 
 function App() {
   const [isCapturing, setIsCapturing] = useState(false)
