@@ -1,0 +1,34 @@
+name: Sync to Hugging Face Space
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # Allows manual triggering
+
+jobs:
+  sync-to-space:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+      
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.FASTVLM_API }}
+        run: |
+          # Add Hugging Face as a remote
+          git remote add space https://crosse712:$HF_TOKEN@huggingface.co/spaces/crosse712/fastvlm-screen-observer
+          
+          # Force push to the Space (this will overwrite the Space with the GitHub repo)
+          git push --force space main
+      
+      - name: Verify deployment
+        run: |
+          echo "✅ Successfully synced to Hugging Face Space!"
+          echo "🔗 View your Space: https://huggingface.co/spaces/crosse712/fastvlm-screen-observer"
+          echo "📊 Check build logs in the Space UI for deployment status"

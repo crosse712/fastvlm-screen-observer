@@ -1,0 +1,63 @@
+name: Sync to HF Space (Official Action)
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  HF_SPACE_ID: crosse712/fastvlm-screen-observer
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      
+      - name: Install huggingface_hub
+        run: pip install huggingface_hub
+      
+      - name: Sync to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.FASTVLM_API }}
+        run: |
+          python -c "
+          from huggingface_hub import HfApi
+          import os
+          
+          api = HfApi()
+          space_id = '${{ env.HF_SPACE_ID }}'
+          token = os.environ.get('HF_TOKEN')
+          
+          # Upload all files to the Space
+          api.upload_folder(
+              folder_path='.',
+              repo_id=space_id,
+              repo_type='space',
+              token=token,
+              commit_message='Sync from GitHub: ${{ github.event.head_commit.message }}',
+              ignore_patterns=['*.git*', '.github/**', '__pycache__/**', '*.pyc', 'venv/**', 'node_modules/**']
+          )
+          
+          print(f'✅ Successfully synced to {space_id}')
+          "
+      
+      - name: Display Space URL
+        run: |
+          echo "🚀 Deployment triggered!"
+          echo "🔗 Space URL: https://huggingface.co/spaces/${{ env.HF_SPACE_ID }}"
+          echo "📊 Check the Space for build status and logs"
