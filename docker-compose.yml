@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  backend:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - USE_EXTREME_OPTIMIZATION=true
+      - MAX_MEMORY_GB=3
+      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:256
+      - OMP_NUM_THREADS=2
+    volumes:
+      - model_cache:/root/.cache/huggingface
+      - ./logs:/app/backend/logs
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+        reservations:
+          memory: 2G
+    restart: unless-stopped
+
+  frontend:
+    image: node:18-alpine
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    command: sh -c "npm install && npm run build && npm run preview -- --host 0.0.0.0 --port 5173"
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+
+volumes:
+  model_cache:
+    driver: local
