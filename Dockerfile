@@ -15,7 +15,6 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     nginx \
-    supervisor \
     libgomp1 \
     libglib2.0-0 \
     libsm6 \
@@ -60,44 +59,17 @@ RUN rm -f /etc/nginx/sites-enabled/default && \
     } \
 }' > /etc/nginx/sites-enabled/default
 
-# Create supervisor configuration
-RUN mkdir -p /var/log/supervisor && \
-    echo '[supervisord] \
-nodaemon=true \
-logfile=/var/log/supervisor/supervisord.log \
-pidfile=/var/run/supervisord.pid \
-\
-[program:nginx] \
-command=/usr/sbin/nginx -g "daemon off;" \
-autostart=true \
-autorestart=true \
-priority=10 \
-stdout_events_enabled=true \
-stderr_events_enabled=true \
-stdout_logfile=/dev/stdout \
-stdout_logfile_maxbytes=0 \
-stderr_logfile=/dev/stderr \
-stderr_logfile_maxbytes=0 \
-\
-[program:backend] \
-command=python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --workers 1 \
-directory=/app \
-autostart=true \
-autorestart=true \
-priority=5 \
-stdout_events_enabled=true \
-stderr_events_enabled=true \
-stdout_logfile=/dev/stdout \
-stdout_logfile_maxbytes=0 \
-stderr_logfile=/dev/stderr \
-stderr_logfile_maxbytes=0 \
-environment=USE_EXTREME_OPTIMIZATION="true",MAX_MEMORY_GB="3",PYTHONUNBUFFERED="1"' > /etc/supervisor/conf.d/supervisord.conf
+# Create startup script to run both services
+RUN mkdir -p /var/log
 
-# Create startup script
+# Create startup script to run both nginx and backend
 RUN echo '#!/bin/bash \
+set -e \
 echo "Starting FastVLM Screen Observer..." \
-echo "Starting supervisor..." \
-exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf' > /app/start.sh && \
+echo "Starting nginx..." \
+service nginx start \
+echo "Starting backend API..." \
+exec python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --workers 1' > /app/start.sh && \
     chmod +x /app/start.sh
 
 # Expose port
