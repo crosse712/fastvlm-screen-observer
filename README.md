@@ -53,4 +53,4 @@ Real-time screen observation and analysis using Apple's FastVLM-7B model, optimi
 https://github.com/crosse712/fastvlm-screen-observer
 
 ---
-Built with ❤️ using FastAPI, React, and FastVLM-7B
+Built with ❤️ using FastAPI, React, and FastVLM-7B# Force rebuild Mon Sep  8 15:44:59 PST 2025
